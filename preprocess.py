@@ -545,10 +545,10 @@ class Preprocess():
         size = 1.5
         weight = 2
         color = (255,255,255)
-        res = self.get_steer_angel(lane_img)
+        res = self.get_steer_angle(lane_img)
         direction = res["direction"]
-        angel = res["angel"]
-        cv2.putText(lane_img,'Steer Angel: '+ '{0:.6f}'.format(angel)+' degree',(15,30), font, size, color, weight)
+        angle = res["angle"]
+        cv2.putText(lane_img,'Steer Angel: '+ '{0:.6f}'.format(angle)+' degree',(15,30), font, size, color, weight)
         cv2.putText(lane_img,'Direction: '+ direction,(15,50), font, size, color, weight)
         return lane_img
         # Main image
@@ -640,10 +640,10 @@ class Preprocess():
             angleDegree = self.angleCalculator(center_x, center_y) # Call angle_calculator method in speed_up.py to use numba function
 
         return angleDegree
-    def get_steer_angel(self,img):
-        angel = self.computeCenter(img)
+    def get_steer_angle(self,img):
+        angle = self.computeCenter(img)
         direction = "left" if (self.left_line.line_base_pos >=0) else "right"
         res = dict()
-        res["angel"] = angel
+        res["angle"] = angle
         res["direction"] = direction
         return res
