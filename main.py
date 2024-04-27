@@ -21,12 +21,17 @@ def main():
     for f in test_filenames:
         img = cv2.imread(f)
         img = cv2.resize(img,IMG_SIZE )
-        # print(img.shape)
         b, g, r = cv2.split(img)
         img = cv2.merge([r, g, b])
-        test_images.append(np.array(img))
+        test_images.append(np.array(img)) 
 
-    # cv2.imshow("ahaha",process.process_img(test_images[0]))
+
+    # b, g, r = cv2.split(test_images[8])
+    # img = cv2.merge([r, g, b])
+    # warp,img = process.process_img(img)
+    # print(process.get_steer_angle(warp))
+    # cv2.imshow("test",img)
+    # # cv2.imshow("test",process.process_img(img))
     # cv2.waitKey(0)
     video = cv2.VideoCapture("camera_front_view.mp4")
     video.set(cv2.CAP_PROP_FPS, 10)
@@ -36,11 +41,11 @@ def main():
             flag, img = video.read()
             img = cv2.resize(img, IMG_SIZE)
             if not flag: break
-            # b, g, r = cv2.split(img)
-            # img = cv2.merge([r, g, b])
-            out_img = np.copy(img)
+            b, g, r = cv2.split(img)
+            img = cv2.merge([r, g, b])
+            warp,img = process.process_img(img)
 
-            cv2.imshow("test",process.process_img(img))
+            cv2.imshow("test",img)
             if cv2.waitKey(1) == ord('q'):break
         except Exception as e:
             print(e)

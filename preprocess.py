@@ -511,111 +511,121 @@ class Preprocess():
             print(e)
             
     def draw_lane(self,undist, img, Minv):
-        # Generate x and y values for plotting
-        ploty = np.linspace(0, undist.shape[0] - 1, undist.shape[0])
-        # Create an image to draw the lines on
-        warp_zero = np.zeros_like(img).astype(np.uint8)
-        color_warp = np.stack((warp_zero, warp_zero, warp_zero), axis=-1)
+        try:
+            # Generate x and y values for plotting
+            ploty = np.linspace(0, undist.shape[0] - 1, undist.shape[0])
+            # Create an image to draw the lines on
+            warp_zero = np.zeros_like(img).astype(np.uint8)
+            color_warp = np.stack((warp_zero, warp_zero, warp_zero), axis=-1)
 
-        left_fit = self.left_line.best_fit
-        right_fit = self.right_line.best_fit
-        if left_fit is not None and right_fit is not None:
-            left_fitx = left_fit[0]*ploty**2 + left_fit[1]*ploty + left_fit[2]
-            
-            # Recast the x and y points into usable format for cv2.fillPoly()
-            pts_left = np.array([np.transpose(np.vstack([left_fitx, ploty]))])
-            right_fitx = right_fit[0]*ploty**2 + right_fit[1]*ploty + right_fit[2]
-            pts_right = np.array([np.flipud(np.transpose(np.vstack([right_fitx, ploty])))])
-            pts = np.hstack((pts_left, pts_right))
-            
-            # Draw the lane onto the warped blank image
-            cv2.fillPoly(color_warp, np.int_([pts]), (0, 255, 0))
-            
-            # Warp the blank back to original image space using inverse perspective matrix (Minv)
-            newwarp = cv2.warpPerspective(color_warp, Minv, (img.shape[1], img.shape[0])) 
-            
-            # Combine the result with the original image
-            result = cv2.addWeighted(undist, 1, newwarp, 0.6, 0)
-            self.write_stats(result)
-            return result
-        return undist
+            left_fit = self.left_line.best_fit
+            right_fit = self.right_line.best_fit
+            if left_fit is not None and right_fit is not None:
+                left_fitx = left_fit[0]*ploty**2 + left_fit[1]*ploty + left_fit[2]
+                
+                # Recast the x and y points into usable format for cv2.fillPoly()
+                pts_left = np.array([np.transpose(np.vstack([left_fitx, ploty]))])
+                right_fitx = right_fit[0]*ploty**2 + right_fit[1]*ploty + right_fit[2]
+                pts_right = np.array([np.flipud(np.transpose(np.vstack([right_fitx, ploty])))])
+                pts = np.hstack((pts_left, pts_right))
+                mean_x = np.mean((left_fitx, right_fitx), axis=0)
+                pts_mean = np.array([np.flipud(np.transpose(np.vstack([mean_x, ploty])))])
+                # Draw the lane onto the warped blank image
+                cv2.fillPoly(color_warp, np.int_([pts]), (255, 255, 255))
+                
+                # Warp the blank back to original image space using inverse perspective matrix (Minv)
+                newwarp = cv2.warpPerspective(color_warp, Minv, (img.shape[1], img.shape[0])) 
+                
+                # result = cv2.addWeighted(undist, 1, newwarp, 0.6, 0)
+                self.write_stats(newwarp)
+                # Combine the result with the original image
+                result = cv2.addWeighted(undist, 1, newwarp, 0.6, 0)
+                self.write_stats(result)
+                return pts_mean,result
+            return undist
+        except Exception as e:
+            print(e)
     def assemble_img(self,warped, threshold_img, polynomial_img, lane_img):
         # Define output image
-        font = cv2.FONT_HERSHEY_PLAIN
-        size = 1.5
-        weight = 2
-        color = (255,255,255)
-        res = self.get_steer_angle(lane_img)
-        direction = res["direction"]
-        angle = res["angle"]
-        cv2.putText(lane_img,'Steer Angel: '+ '{0:.6f}'.format(angle)+' degree',(15,30), font, size, color, weight)
-        cv2.putText(lane_img,'Direction: '+ direction,(15,50), font, size, color, weight)
-        return lane_img
-        # Main image
-        img_out=np.zeros((360,854,3), dtype=np.uint8)
-        # img_out[0:720,0:1280,:] = lane_img
-        img_out[0:360,0:640,:] = lane_img
+        try:
+            font = cv2.FONT_HERSHEY_PLAIN
+            size = 1.5
+            weight = 2
+            color = (255,255,255)
+            res = self.get_steer_angle(warped)
+            direction = res["direction"]
+            angle = res["angle"]
+            cv2.putText(lane_img,'Steer Angel: '+ '{0:.6f}'.format(angle)+' degree',(15,30), font, size, color, weight)
+            cv2.putText(lane_img,'Direction: '+ direction,(15,50), font, size, color, weight)
+            return lane_img
+            # Main image
+            img_out=np.zeros((360,854,3), dtype=np.uint8)
+            # img_out[0:720,0:1280,:] = lane_img
+            img_out[0:360,0:640,:] = lane_img
+            
+            # Text formatting
+            fontScale=1
+            thickness=1
+            fontFace = cv2.FONT_HERSHEY_PLAIN
+            
+            # Perspective transform image
+            img_out[0:120,641:854,:] = cv2.resize(warped,(213,120))
+            boxsize, _ = cv2.getTextSize("Transformed", fontFace, fontScale, thickness)
+            cv2.putText(img_out, "Transformed", (int(747-boxsize[0]/2),40), fontFace, fontScale,(255,255,255), thickness,  lineType = cv2.LINE_AA)
         
-        # Text formatting
-        fontScale=1
-        thickness=1
-        fontFace = cv2.FONT_HERSHEY_PLAIN
+            # Threshold image
+            resized = cv2.resize(threshold_img,(213,120))
+            resized=np.uint8(resized)
+            gray_image = cv2.cvtColor(resized*255,cv2.COLOR_GRAY2RGB)
+            img_out[121:241,641:854,:] = cv2.resize(gray_image,(213,120))
+            boxsize, _ = cv2.getTextSize("Filtered", fontFace, fontScale, thickness)
+            cv2.putText(img_out, "Filtered", (int(747-boxsize[0]/2),141), fontFace, fontScale,(255,255,255), thickness,  lineType = cv2.LINE_AA)
         
-        # Perspective transform image
-        img_out[0:120,641:854,:] = cv2.resize(warped,(213,120))
-        boxsize, _ = cv2.getTextSize("Transformed", fontFace, fontScale, thickness)
-        cv2.putText(img_out, "Transformed", (int(747-boxsize[0]/2),40), fontFace, fontScale,(255,255,255), thickness,  lineType = cv2.LINE_AA)
-    
-        # Threshold image
-        resized = cv2.resize(threshold_img,(213,120))
-        resized=np.uint8(resized)
-        gray_image = cv2.cvtColor(resized*255,cv2.COLOR_GRAY2RGB)
-        img_out[121:241,641:854,:] = cv2.resize(gray_image,(213,120))
-        boxsize, _ = cv2.getTextSize("Filtered", fontFace, fontScale, thickness)
-        cv2.putText(img_out, "Filtered", (int(747-boxsize[0]/2),141), fontFace, fontScale,(255,255,255), thickness,  lineType = cv2.LINE_AA)
-    
-        # Polynomial lines
-        img_out[240:360,641:854,:] = cv2.resize(polynomial_img*255,(213,120))
-        boxsize, _ = cv2.getTextSize("Detected Lanes", fontFace, fontScale, thickness)
-        cv2.putText(img_out, "Detected Lanes", (int(747-boxsize[0]/2),523621), fontFace, fontScale,(255,255,255), thickness,  lineType = cv2.LINE_AA)
-        
+            # Polynomial lines
+            img_out[240:360,641:854,:] = cv2.resize(polynomial_img*255,(213,120))
+            boxsize, _ = cv2.getTextSize("Detected Lanes", fontFace, fontScale, thickness)
+            cv2.putText(img_out, "Detected Lanes", (int(747-boxsize[0]/2),523621), fontFace, fontScale,(255,255,255), thickness,  lineType = cv2.LINE_AA)
+            
 
 
-        return img_out
-
+            return img_out
+        except Exception as e:
+            print(e)
     def process_img(self,img):
+        try:
+            img =cv2.resize(img,IMG_SIZE)
+            # Undistorting image
+            undist = self.camera.undistort(img)
+            # Masking image
+            masked = self.mask_image(undist)
+            
+            # Perspective transform image
+            warped, M, Minv = self.pers_transform(undist)
+            
+            # Colour thresholding in S channel
+            s_bin = self.hls_thresh(warped)
+            
+            # Colour thresholding in B channel of LAB
+            b_bin = self.lab_b_channel(warped, thresh = (185, 255))
+            
+            # Combining both thresholds
+            combined = np.zeros_like(s_bin)
+            combined[(s_bin==1) | (b_bin == 1)] = 1
+            
+            # Find Lanes
+            output_img = self.find_lanes(combined)
 
-        img =cv2.resize(img,IMG_SIZE)
-        # Undistorting image
-        undist = self.camera.undistort(img)
-        # Masking image
-        masked = self.mask_image(undist)
-        
-        # Perspective transform image
-        warped, M, Minv = self.pers_transform(undist)
-        
-        # Colour thresholding in S channel
-        s_bin = self.hls_thresh(warped)
-        
-        # Colour thresholding in B channel of LAB
-        b_bin = self.lab_b_channel(warped, thresh = (185, 255))
-        
-        # Combining both thresholds
-        combined = np.zeros_like(s_bin)
-        combined[(s_bin==1) | (b_bin == 1)] = 1
-        
-        # Find Lanes
-        output_img = self.find_lanes(combined)
-
-        # Draw lanes on image
-        lane_img = self.draw_lane(undist, combined, Minv); 
-        
-        result = self.assemble_img(warped, combined, output_img, lane_img)    
-        
-        return result
+            # Draw lanes on image
+            pts_mean,lane_img = self.draw_lane(undist, combined, Minv); 
+            
+            result = self.assemble_img( warped, combined, output_img, lane_img)    
+            
+            return pts_mean,result
+        except Exception as e:
+            print(e)
 
     def angleCalculator(self, x, y):
-        slope = (x - 72) / float(y - 144) # (320, 360) is center of (640, 360) image
+        slope = (x - 240) / float(y - 330) # (320, 360) is center of (640, 360) image
         angleRadian = float(math.atan(slope))
         angleDegree = float(angleRadian * 180.0 / math.pi)
         return angleDegree
@@ -626,8 +636,8 @@ class Preprocess():
         center_y = 0 
         gray_img = cv2.cvtColor(roadImg, cv2.COLOR_BGR2GRAY)
 
-        for i in range(0,144):
-            for j in range(0,144):
+        for i in range(180,300):
+            for j in range(20,600):
                 if gray_img[i][j] == 255:
                     count += 1
                     center_x += i
@@ -636,14 +646,13 @@ class Preprocess():
 
         if center_x != 0 or center_y != 0 or count != 0:
             center_x = center_x / count
-            center_x = center_y / count
+            center_y = center_y / count
             angleDegree = self.angleCalculator(center_x, center_y) # Call angle_calculator method in speed_up.py to use numba function
-
         return angleDegree
     def get_steer_angle(self,img):
         angle = self.computeCenter(img)
-        direction = "left" if (self.left_line.line_base_pos >=0) else "right"
+        # direction = "left" if (self.left_line.line_base_pos >=0) else "right"
         res = dict()
         res["angle"] = angle
-        res["direction"] = direction
+        res["direction"] = "left" if angle<0 else "right"
         return res
