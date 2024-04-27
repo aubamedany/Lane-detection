@@ -4,13 +4,15 @@ import numpy as np
 import cv2
 import glob
 from collections import deque
-
+import math
 # Needed to edit/save/watch video clips
 from moviepy.editor import VideoFileClip
 from IPython.display import HTML
 IMG_SIZE = [640, 360]
 # %matplotlib inline
-
+ym_per_pix = 30/360
+        # meters per pixel in x dimension
+xm_per_pix = 3.7/600
 
 class Camera():    
     def __init__(self,nx=9,ny=6):
@@ -77,7 +79,7 @@ class Line():
         self.radius_of_curvature = None 
         # Distance in meters of vehicle center from the line
         self.line_base_pos = None 
-         
+        
     def update_lane(self, ally, allx):
         # Updates lanes on every new frame
         # Mean x value 
@@ -91,9 +93,7 @@ class Line():
         # Use the queue mean as the best fit
         self.best_fit = np.mean(self.recent_xfitted, axis=0)
         # meters per pixel in y dimension
-        ym_per_pix = 30/720
-        # meters per pixel in x dimension
-        xm_per_pix = 3.7/700
+        
         # Calculate radius of curvature
         fit_cr = np.polyfit(ally*ym_per_pix, allx*xm_per_pix, 2)
         y_eval = np.max(ally)
@@ -342,6 +342,11 @@ class Preprocess():
         cv2.polylines(out_img, [right], False, (1,1,0), thickness=5)
         cv2.polylines(out_img, [left], False, (1,1,0), thickness=5)
         
+        result = dict()
+        result['left_lane_inds'] = left_lane_inds
+        result['right_lane_inds'] = right_lane_inds
+        result['out_img'] = out_img
+        return result
         return left_lane_inds, right_lane_inds, out_img
     def margin_search(self,binary_warped):
         # Performs window search on subsequent frame, given previous frame.
@@ -390,15 +395,26 @@ class Preprocess():
         out_img = cv2.addWeighted(out_img, 1, window_img, 0.3, 0)
 
         # Color in left and right line pixels
-        out_img[nonzeroy[left_lane_inds], nonzerox[left_lane_inds]] = [1, 0, 0]
-        out_img[nonzeroy[right_lane_inds], nonzerox[right_lane_inds]] = [0, 0, 1]
+        out_img[nonzeroy[left_lane_inds], nonzerox[left_lane_inds]] = [255, 0, 0]
+        out_img[nonzeroy[right_lane_inds], nonzerox[right_lane_inds]] =  [0, 0, 255]
             
         # Draw polyline on image
         right = np.asarray(tuple(zip(right_fitx, ploty)), np.int32)
         left = np.asarray(tuple(zip(left_fitx, ploty)), np.int32)
         cv2.polylines(out_img, [right], False, (1,1,0), thickness=5)
         cv2.polylines(out_img, [left], False, (1,1,0), thickness=5)
-        
+
+        ret = {}
+        ret['leftx'] = leftx
+        ret['rightx'] = rightx
+        ret['left_fitx'] = left_fitx
+        ret['right_fitx'] = right_fitx
+        ret['ploty'] = ploty
+        ret['result'] = out_img
+        ret['left_lane_inds'] = left_lane_inds
+        ret['right_lane_inds'] = right_lane_inds 
+        ret['out_img'] = out_img
+        return ret
         return left_lane_inds, right_lane_inds, out_img
     def validate_lane_update(self,img, left_lane_inds, right_lane_inds):
         # Checks if detected lanes are good enough before updating
@@ -451,7 +467,7 @@ class Preprocess():
             self.right_line.detected = False    
     
         # Calculate vehicle-lane offset
-        xm_per_pix = 3.7/610 # meters per pixel in x dimension, lane width is 12 ft = 3.7 meters
+        # xm_per_pix = 3.7/610 # meters per pixel in x dimension, lane width is 12 ft = 3.7 meters
         car_position = img_size[0]/2
         l_fit = self.left_line.current_fit
         r_fit = self.right_line.current_fit
@@ -463,32 +479,36 @@ class Preprocess():
     def find_lanes(self,img):
         if self.left_line.detected and self.right_line.detected:  # Perform margin search if exists prior success.
             # Margin Search
-            left_lane_inds, right_lane_inds,out_img = self.margin_search(img)
+            ret = self.margin_search(img)
+            left_lane_inds, right_lane_inds,out_img = ret['left_lane_inds'],ret["right_lane_inds"],ret["out_img"]
             # Update the lane detections
             self.validate_lane_update(img, left_lane_inds, right_lane_inds)
             
         else:  # Perform a full window search if no prior successful detections.
             # Window Search
-            left_lane_inds, right_lane_inds,out_img = self.window_search(img)
+            res =self.window_search(img)
+            left_lane_inds, right_lane_inds,out_img = res["left_lane_inds"],res["right_lane_inds"],res["out_img"]
             # Update the lane detections
             self.validate_lane_update(img, left_lane_inds, right_lane_inds)
         return out_img
 
 
     def write_stats(self,img):
-        font = cv2.FONT_HERSHEY_PLAIN
-        size = 3
-        weight = 2
-        color = (255,255,255)
-        
-        radius_of_curvature = (self.right_line.radius_of_curvature + self.right_line.radius_of_curvature)/2
-        cv2.putText(img,'Lane Curvature Radius: '+ '{0:.2f}'.format(radius_of_curvature)+'m',(15,30), font, size, color, weight)
-
-        if (self.left_line.line_base_pos >=0):
-            cv2.putText(img,'Vehicle is '+ '{0:.2f}'.format(self.left_line.line_base_pos*100)+'cm'+ ' Right of Center',(15,50), font, size, color, weight)
-        else:
-            cv2.putText(img,'Vehicle is '+ '{0:.2f}'.format(abs(self.left_line.line_base_pos)*100)+'cm' + ' Left of Center',(15,50), font, size, color, weight)
+        try:
+            font = cv2.FONT_HERSHEY_PLAIN
+            size = 1.5
+            weight = 2
+            color = (255,255,255)
             
+            radius_of_curvature = (self.left_line.radius_of_curvature + self.right_line.radius_of_curvature)/2.0
+            cv2.putText(img,'Lane Curvature Radius: '+ '{0:.2f}'.format(radius_of_curvature)+'m',(15,15), font, size, color, weight)
+
+            # if (self.left_line.line_base_pos >=0):
+            #     cv2.putText(img,'Vehicle is '+ '{0:.2f}'.format(self.left_line.line_base_pos*100)+'cm'+ ' Right of Center',(15,50), font, size, color, weight)
+            # else:
+            #     cv2.putText(img,'Vehicle is '+ '{0:.2f}'.format(abs(self.left_line.line_base_pos)*100)+'cm' + ' Left of Center',(15,50), font, size, color, weight)
+        except Exception as e:
+            print(e)
             
     def draw_lane(self,undist, img, Minv):
         # Generate x and y values for plotting
@@ -509,7 +529,7 @@ class Preprocess():
             pts = np.hstack((pts_left, pts_right))
             
             # Draw the lane onto the warped blank image
-            cv2.fillPoly(color_warp, np.int_([pts]), (64, 224, 208))
+            cv2.fillPoly(color_warp, np.int_([pts]), (0, 255, 0))
             
             # Warp the blank back to original image space using inverse perspective matrix (Minv)
             newwarp = cv2.warpPerspective(color_warp, Minv, (img.shape[1], img.shape[0])) 
@@ -521,6 +541,16 @@ class Preprocess():
         return undist
     def assemble_img(self,warped, threshold_img, polynomial_img, lane_img):
         # Define output image
+        font = cv2.FONT_HERSHEY_PLAIN
+        size = 1.5
+        weight = 2
+        color = (255,255,255)
+        res = self.get_steer_angel(lane_img)
+        direction = res["direction"]
+        angel = res["angel"]
+        cv2.putText(lane_img,'Steer Angel: '+ '{0:.6f}'.format(angel)+' degree',(15,30), font, size, color, weight)
+        cv2.putText(lane_img,'Direction: '+ direction,(15,50), font, size, color, weight)
+        return lane_img
         # Main image
         img_out=np.zeros((360,854,3), dtype=np.uint8)
         # img_out[0:720,0:1280,:] = lane_img
@@ -549,7 +579,10 @@ class Preprocess():
         boxsize, _ = cv2.getTextSize("Detected Lanes", fontFace, fontScale, thickness)
         cv2.putText(img_out, "Detected Lanes", (int(747-boxsize[0]/2),523621), fontFace, fontScale,(255,255,255), thickness,  lineType = cv2.LINE_AA)
         
+
+
         return img_out
+
     def process_img(self,img):
 
         img =cv2.resize(img,IMG_SIZE)
@@ -581,4 +614,36 @@ class Preprocess():
         
         return result
 
+    def angleCalculator(self, x, y):
+        slope = (x - 72) / float(y - 144) # (320, 360) is center of (640, 360) image
+        angleRadian = float(math.atan(slope))
+        angleDegree = float(angleRadian * 180.0 / math.pi)
+        return angleDegree
+    
+    def computeCenter(self, roadImg):
+        count = 0
+        center_x = 0
+        center_y = 0 
+        gray_img = cv2.cvtColor(roadImg, cv2.COLOR_BGR2GRAY)
 
+        for i in range(0,144):
+            for j in range(0,144):
+                if gray_img[i][j] == 255:
+                    count += 1
+                    center_x += i
+                    center_y += j
+        
+
+        if center_x != 0 or center_y != 0 or count != 0:
+            center_x = center_x / count
+            center_x = center_y / count
+            angleDegree = self.angleCalculator(center_x, center_y) # Call angle_calculator method in speed_up.py to use numba function
+
+        return angleDegree
+    def get_steer_angel(self,img):
+        angel = self.computeCenter(img)
+        direction = "left" if (self.left_line.line_base_pos >=0) else "right"
+        res = dict()
+        res["angel"] = angel
+        res["direction"] = direction
+        return res

@@ -10,6 +10,8 @@ from collections import deque
 from moviepy.editor import VideoFileClip
 from IPython.display import HTML
 
+%matplotlib inline
+
 # %matplotlib inline
 
 class Camera():    
