@@ -109,6 +109,14 @@ class Preprocess():
                             np.array([self.src[3, 0], 0]) - self.offset, self.src[3] - self.offset])
         self.left_line = Line()
         self.right_line = Line()
+        self.lane_center_position =None
+        self.left_lane_base_pos = None
+        self.right_lane_base_pos = None
+        self.left_lane = None
+        self.right_lane = None
+        self.center = None
+        self.l= None
+        self.r = None
     def pers_transform(self,img, nx=9, ny=6):
         # Grab the image shape
         img_size = (img.shape[1], img.shape[0])
@@ -335,13 +343,14 @@ class Preprocess():
         # Generate black image and colour lane lines
         out_img[nonzeroy[left_lane_inds], nonzerox[left_lane_inds]] = [1, 0, 0]
         out_img[nonzeroy[right_lane_inds], nonzerox[right_lane_inds]] = [0, 0, 1]
-            
+        
         # Draw polyline on image
         right = np.asarray(tuple(zip(right_fitx, ploty)), np.int32)
         left = np.asarray(tuple(zip(left_fitx, ploty)), np.int32)
         cv2.polylines(out_img, [right], False, (1,1,0), thickness=5)
         cv2.polylines(out_img, [left], False, (1,1,0), thickness=5)
-        
+        self.r = right
+        self.l = left
         result = dict()
         result['left_lane_inds'] = left_lane_inds
         result['right_lane_inds'] = right_lane_inds
@@ -403,7 +412,8 @@ class Preprocess():
         left = np.asarray(tuple(zip(left_fitx, ploty)), np.int32)
         cv2.polylines(out_img, [right], False, (1,1,0), thickness=5)
         cv2.polylines(out_img, [left], False, (1,1,0), thickness=5)
-
+        self.r = right
+        self.l = left
         ret = {}
         ret['leftx'] = leftx
         ret['rightx'] = rightx
@@ -439,8 +449,13 @@ class Preprocess():
         
         left_x_mean = np.mean(left_line_allx, axis=0)
         right_x_mean = np.mean(right_line_allx, axis=0)
+        left_y_mean = np.mean(left_line_ally, axis=0)
+        right_y_mean = np.mean(right_line_ally, axis=0)
         lane_width = np.subtract(right_x_mean, left_x_mean)
         
+        self.left_lane = (int(left_x_mean),int(left_y_mean))
+        self.right_lane = (int(right_x_mean),int(right_y_mean))
+        self.center = (int((left_x_mean+right_x_mean)/2),int((left_y_mean+right_y_mean)/2))
         # Discard the detections if lanes are not in their repective half of their screens
         if left_x_mean > 370 or right_x_mean < 370:
             self.left_line.detected = False
@@ -469,12 +484,13 @@ class Preprocess():
         # Calculate vehicle-lane offset
         # xm_per_pix = 3.7/610 # meters per pixel in x dimension, lane width is 12 ft = 3.7 meters
         car_position = img_size[0]/2
+
         l_fit = self.left_line.current_fit
         r_fit = self.right_line.current_fit
-        left_lane_base_pos = l_fit[0]*img_size[1]**2 + l_fit[1]*img_size[1] + l_fit[2]
-        right_lane_base_pos = r_fit[0]*img_size[1]**2 + r_fit[1]*img_size[1] + r_fit[2]
-        lane_center_position = (left_lane_base_pos + right_lane_base_pos) /2
-        self.left_line.line_base_pos = (car_position - lane_center_position) * xm_per_pix +0.2
+        self.left_lane_base_pos = l_fit[0]*img_size[1]**2 + l_fit[1]*img_size[1] + l_fit[2]
+        self.right_lane_base_pos = r_fit[0]*img_size[1]**2 + r_fit[1]*img_size[1] + r_fit[2]
+        self.lane_center_position = (self.left_lane_base_pos + self.right_lane_base_pos) /2
+        self.left_line.line_base_pos = (car_position - self.lane_center_position) * xm_per_pix +0.2
         self.right_line.line_base_pos = self.left_line.line_base_pos
     def find_lanes(self,img):
         if self.left_line.detected and self.right_line.detected:  # Perform margin search if exists prior success.
@@ -499,10 +515,15 @@ class Preprocess():
             size = 1.5
             weight = 2
             color = (255,255,255)
-            
+            color2 = (255,0,0)
+            color3 = (0,255,0)
+            x = self.lane_center_position
             radius_of_curvature = (self.left_line.radius_of_curvature + self.right_line.radius_of_curvature)/2.0
             cv2.putText(img,'Lane Curvature Radius: '+ '{0:.2f}'.format(radius_of_curvature)+'m',(15,15), font, size, color, weight)
-
+            cv2.putText(img,'.',(int(self.lane_center_position),250), font, size, color2, weight)
+            cv2.putText(img,'.',(int(320),250), font, size, color3, weight)
+            # cv2.putText(img,'.',self.left_lane, font, size, color2, weight)
+            # cv2.putText(img,'.',self.right_lane, font, size, color2, weight)
             # if (self.left_line.line_base_pos >=0):
             #     cv2.putText(img,'Vehicle is '+ '{0:.2f}'.format(self.left_line.line_base_pos*100)+'cm'+ ' Right of Center',(15,50), font, size, color, weight)
             # else:
@@ -541,7 +562,7 @@ class Preprocess():
                 # Combine the result with the original image
                 result = cv2.addWeighted(undist, 1, newwarp, 0.6, 0)
                 self.write_stats(result)
-                return pts_mean,result
+                return newwarp,result
             return undist
         except Exception as e:
             print(e)
@@ -557,7 +578,9 @@ class Preprocess():
             angle = res["angle"]
             cv2.putText(lane_img,'Steer Angel: '+ '{0:.6f}'.format(angle)+' degree',(15,30), font, size, color, weight)
             cv2.putText(lane_img,'Direction: '+ direction,(15,50), font, size, color, weight)
-            return lane_img
+            cv2.putText(lane_img,'Direction: '+ direction,(15,50), font, size, color, weight)
+
+            return polynomial_img*255
             # Main image
             img_out=np.zeros((360,854,3), dtype=np.uint8)
             # img_out[0:720,0:1280,:] = lane_img
@@ -580,7 +603,7 @@ class Preprocess():
             img_out[121:241,641:854,:] = cv2.resize(gray_image,(213,120))
             boxsize, _ = cv2.getTextSize("Filtered", fontFace, fontScale, thickness)
             cv2.putText(img_out, "Filtered", (int(747-boxsize[0]/2),141), fontFace, fontScale,(255,255,255), thickness,  lineType = cv2.LINE_AA)
-        
+            
             # Polynomial lines
             img_out[240:360,641:854,:] = cv2.resize(polynomial_img*255,(213,120))
             boxsize, _ = cv2.getTextSize("Detected Lanes", fontFace, fontScale, thickness)
@@ -651,8 +674,9 @@ class Preprocess():
         return angleDegree
     def get_steer_angle(self,img):
         angle = self.computeCenter(img)
-        # direction = "left" if (self.left_line.line_base_pos >=0) else "right"
+        direction = "left" if (self.left_line.line_base_pos >=0) else "right"
         res = dict()
         res["angle"] = angle
-        res["direction"] = "left" if angle<0 else "right"
+        # res["direction"] = "left" if angle<0 else "right"
+        res["direction"] =direction
         return res
